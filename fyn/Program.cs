@@ -14,6 +14,7 @@ namespace fyn
         public string Name { get; set; } = "";
         public string Version { get; set; } = "";
         public string Description { get; set; } = "";
+        public string PackageBase { get; set; } = ""; // For AUR git cloning
     }
 
     public class Fyn
@@ -168,13 +169,15 @@ namespace fyn
                             string name = pkg.GetProperty("Name").GetString() ?? "N/A";
                             string version = pkg.GetProperty("Version").GetString() ?? "N/A";
                             string description = pkg.GetProperty("Description").GetString() ?? "N/A";
+                            string packageBase = pkg.GetProperty("PackageBase").GetString() ?? name;
                             
                             packages.Add(new PackageInfo
                             {
                                 Repo = "aur",
                                 Name = name,
                                 Version = version,
-                                Description = description
+                                Description = description,
+                                PackageBase = packageBase
                             });
                         }
                     }
@@ -349,9 +352,39 @@ namespace fyn
 
         static async Task InstallFromAUR(string packageName)
         {
+            // First, get the PackageBase from the API
+            string packageBase = packageName;
+            
+            using (HttpClient client = new HttpClient())
+            {
+                try
+                {
+                    var response = await client.GetAsync($"https://aur.archlinux.org/rpc/v5/info?arg[]={packageName}");
+                    response.EnsureSuccessStatusCode();
+                    
+                    var content = await response.Content.ReadAsStringAsync();
+                    using (JsonDocument doc = JsonDocument.Parse(content))
+                    {
+                        var root = doc.RootElement;
+                        var results = root.GetProperty("results");
+                        
+                        if (results.GetArrayLength() > 0)
+                        {
+                            var pkg = results[0];
+                            packageBase = pkg.GetProperty("PackageBase").GetString() ?? packageName;
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine($"Warning: Could not fetch package info from AUR API: {e.Message}");
+                    Console.WriteLine($"Attempting to use package name '{packageName}' for cloning...");
+                }
+            }
+
             string homeDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             string cacheDir = Path.Combine(homeDir, ".cache", "fyn");
-            string packageDir = Path.Combine(cacheDir, packageName);
+            string packageDir = Path.Combine(cacheDir, packageBase);
             
             try
             {
@@ -366,7 +399,7 @@ namespace fyn
                     {
                         Console.WriteLine("Error updating repository. Trying fresh clone...");
                         Directory.Delete(packageDir, true);
-                        int gitCloneResult = RunCommand("git", $"clone https://aur.archlinux.org/{packageName}.git", cacheDir);
+                        int gitCloneResult = RunCommand("git", $"clone https://aur.archlinux.org/{packageBase}.git", cacheDir);
                         
                         if (gitCloneResult != 0)
                         {
@@ -377,8 +410,8 @@ namespace fyn
                 }
                 else
                 {
-                    Console.WriteLine($"Cloning AUR repository for {packageName}...");
-                    int gitCloneResult = RunCommand("git", $"clone https://aur.archlinux.org/{packageName}.git", cacheDir);
+                    Console.WriteLine($"Cloning AUR repository for {packageBase}...");
+                    int gitCloneResult = RunCommand("git", $"clone https://aur.archlinux.org/{packageBase}.git", cacheDir);
                     
                     if (gitCloneResult != 0)
                     {
