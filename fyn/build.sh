@@ -33,8 +33,8 @@ PROJECT_NAME=$(basename "$PROJECT_FILE" .csproj)
 echo "Found project: $PROJECT_NAME"
 echo
 
-# Build the project
-dotnet publish -c Release -r linux-x64 --self-contained false -o ./build
+# Build as a single self-contained executable
+dotnet publish -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o ./build
 
 if [ $? -ne 0 ]; then
     echo
@@ -51,8 +51,8 @@ read -p "Do you want to install Fyntora to your system? [Y/n] " -n 1 -r
 echo
 
 if [[ ! $REPLY =~ ^[Yy]$ ]] && [[ ! -z $REPLY ]]; then
-    echo "Build complete. Binary is located at: ./build/fyn"
-    echo "You can manually copy it to /usr/local/bin/ if needed."
+    echo "Build complete. Binary is located at: ./build/$PROJECT_NAME"
+    echo "You can manually copy it to /usr/local/bin/fyn if needed."
     exit 0
 fi
 
@@ -65,33 +65,9 @@ if [ ! -d "/usr/local/bin" ]; then
     sudo mkdir -p /usr/local/bin
 fi
 
-# Copy the binary
-sudo cp ./build/fyn /usr/local/bin/fyn
+# Copy the single binary
+sudo cp "./build/$PROJECT_NAME" /usr/local/bin/fyn
 sudo chmod +x /usr/local/bin/fyn
-
-# Copy runtime dependencies
-if [ -d "./build" ]; then
-    sudo mkdir -p /usr/local/lib/fyntora
-    sudo cp -r ./build/* /usr/local/lib/fyntora/
-    
-    # Find the actual DLL name
-    DLL_NAME=$(ls ./build/*.dll 2>/dev/null | head -n 1 | xargs -n 1 basename)
-    
-    if [ -z "$DLL_NAME" ]; then
-        echo "Error: Could not find compiled DLL!"
-        exit 1
-    fi
-    
-    echo "Using DLL: $DLL_NAME"
-    
-    # Create wrapper script
-    sudo tee /usr/local/bin/fyn > /dev/null << EOF
-#!/bin/bash
-exec dotnet /usr/local/lib/fyntora/$DLL_NAME "\$@"
-EOF
-    
-    sudo chmod +x /usr/local/bin/fyn
-fi
 
 echo
 echo "✓ Installation complete!"
@@ -102,5 +78,4 @@ echo "  fyn i <package>  - Install packages"
 echo
 echo "To uninstall, run:"
 echo "  sudo rm /usr/local/bin/fyn"
-echo "  sudo rm -rf /usr/local/lib/fyntora"
 echo

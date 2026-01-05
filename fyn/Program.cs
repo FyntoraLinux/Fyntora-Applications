@@ -21,31 +21,148 @@ namespace fyn
     {
         public static async Task Main(string[] args)
         {
-            if (args.Length < 2)
+            if (args.Length < 1)
             {
-                Console.WriteLine("Usage: fyn <command> <package-name>");
+                Console.WriteLine("Usage: fyn <command> [package-name]");
                 Console.WriteLine("Commands:");
-                Console.WriteLine("  s <package>  - Search for a package");
-                Console.WriteLine("  i <package>  - Install a package");
+                Console.WriteLine("  s <package>              - Search for a package");
+                Console.WriteLine("  i <package> [package2..] - Install one or more packages");
+                Console.WriteLine("  i aur/package            - Install from specific repo");
+                Console.WriteLine("  r <package> [package2..] - Remove one or more packages");
+                Console.WriteLine("  u                        - Update system");
                 return;
             }
 
             if (args[0] == "s")
             {
+                if (args.Length < 2)
+                {
+                    Console.WriteLine("Error: 's' command requires a package name");
+                    Console.WriteLine("Usage: fyn s <package-name>");
+                    return;
+                }
                 string packageName = args[1];
                 await SearchPackages(packageName);
             }
             else if (args[0] == "i")
             {
-                string packageName = args[1];
-                await InstallPackage(packageName);
+                if (args.Length < 2)
+                {
+                    Console.WriteLine("Error: 'i' command requires at least one package name");
+                    Console.WriteLine("Usage: fyn i <package-name> [package-name2] ...");
+                    Console.WriteLine("       fyn i aur/package-name");
+                    Console.WriteLine("       fyn i core/package-name");
+                    return;
+                }
+                
+                // Install multiple packages
+                for (int i = 1; i < args.Length; i++)
+                {
+                    string packageSpec = args[i];
+                    await InstallPackage(packageSpec);
+                    
+                    if (i < args.Length - 1)
+                    {
+                        Console.WriteLine("\n" + new string('=', 60) + "\n");
+                    }
+                }
+            }
+            else if (args[0] == "r")
+            {
+                if (args.Length < 2)
+                {
+                    Console.WriteLine("Error: 'r' command requires at least one package name");
+                    Console.WriteLine("Usage: fyn r <package-name> [package-name2] ...");
+                    return;
+                }
+                
+                // Remove multiple packages
+                for (int i = 1; i < args.Length; i++)
+                {
+                    string packageName = args[i];
+                    RemovePackage(packageName);
+                    
+                    if (i < args.Length - 1)
+                    {
+                        Console.WriteLine("\n" + new string('=', 60) + "\n");
+                    }
+                }
+            }
+            else if (args[0] == "u")
+            {
+                Console.WriteLine("Updating system using pacman...");
+                
+                ProcessStartInfo startInfo = new ProcessStartInfo
+                {
+                    FileName = "sudo",
+                    Arguments = "pacman -Syu",
+                    UseShellExecute = false
+                };
+
+                using (Process? process = Process.Start(startInfo))
+                {
+                    if (process == null)
+                    {
+                        Console.WriteLine("Error: Could not start pacman");
+                        return;
+                    }
+
+                    process.WaitForExit();
+                    
+                    if (process.ExitCode == 0)
+                    {
+                        Console.WriteLine("\nSystem updated successfully!");
+                    }
+                    else
+                    {
+                        Console.WriteLine("\nError: Failed to update system");
+                    }
+                }
             }
             else
             {
                 Console.WriteLine($"Unknown command: {args[0]}");
                 Console.WriteLine("Available commands:");
-                Console.WriteLine("  fyn s <package>  - Search for a package");
-                Console.WriteLine("  fyn i <package>  - Install a package");
+                Console.WriteLine("  fyn s <package>              - Search for a package");
+                Console.WriteLine("  fyn i <package> [package2..] - Install one or more packages");
+                Console.WriteLine("  fyn i aur/package            - Install from specific repo");
+                Console.WriteLine("  fyn r <package> [package2..] - Remove one or more packages");
+                Console.WriteLine("  fyn u                        - Update system");
+            }
+        }
+
+        static void RemovePackage(string packageName)
+        {
+            Console.WriteLine($"Removing {packageName}...\n");
+            
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = "sudo",
+                Arguments = $"pacman -Rs {packageName}",
+                UseShellExecute = false,
+                RedirectStandardInput = false,
+                RedirectStandardOutput = false,
+                RedirectStandardError = false
+            };
+
+            using (Process? process = Process.Start(startInfo))
+            {
+                if (process == null)
+                {
+                    Console.WriteLine("Error: Could not start pacman");
+                    return;
+                }
+
+                process.WaitForExit();
+                
+                if (process.ExitCode == 0)
+                {
+                    Console.WriteLine($"\n{packageName} removed successfully!");
+                }
+                else
+                {
+                    Console.WriteLine($"\nError: Failed to remove {packageName}");
+                }
             }
         }
 
@@ -191,8 +308,33 @@ namespace fyn
             return packages;
         }
 
-        static async Task InstallPackage(string packageName)
+        static async Task InstallPackage(string packageSpec)
         {
+            // Check if package has repo prefix (e.g., "aur/package" or "core/package")
+            string? specifiedRepo = null;
+            string packageName = packageSpec;
+            
+            if (packageSpec.Contains('/'))
+            {
+                var parts = packageSpec.Split('/', 2);
+                specifiedRepo = parts[0].ToLower();
+                packageName = parts[1];
+                
+                Console.WriteLine($"Installing {packageName} from {specifiedRepo} repository...\n");
+                
+                // Install directly from specified repo
+                if (specifiedRepo == "aur")
+                {
+                    await InstallFromAUR(packageName);
+                }
+                else
+                {
+                    // Assume it's an official repo
+                    InstallFromOfficialRepo(packageName);
+                }
+                return;
+            }
+            
             Console.WriteLine($"Searching for {packageName}...\n");
 
             // Search for packages
